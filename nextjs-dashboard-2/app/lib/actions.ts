@@ -14,9 +14,17 @@ const FormSchema = z.object({
   status: z.enum(['pending', 'paid'], { invalid_type_error: 'Please select a status.' }),
   date: z.string(),
 });
+
+const FormCustomerSchema = z.object({
+  id: z.string(),
+  name: z.string({invalid_type_error: 'Please enter a name.'}),
+  email: z.string({invalid_type_error: 'Please enter an email.'}), 
+  image_url: z.string({invalid_type_error: 'Please enter an image url.'}),
+});
  
 const CreateInvoice = FormSchema.omit({ id: true, date: true });
 const UpdateInvoice = FormSchema.omit({ id: true, date: true });
+const CreateCustomer = FormCustomerSchema.omit({ id: true});
 
 export type State = {
     errors?: {
@@ -64,6 +72,43 @@ export async function createInvoice(prevState: State, formData: FormData) {
     // Revalidate the cache for the invoices page and redirect the user.
     revalidatePath('/dashboard/invoices');
     redirect('/dashboard/invoices');
+}
+
+export async function createCustomer(prevState: State, formData: FormData) {
+    // Validate form using Zod
+    const validatedFields = CreateCustomer.safeParse({
+      name: formData.get('name'),
+      email: formData.get('email'),
+      image_url: formData.get('image_url'),
+    });
+   
+    // If form validation fails, return errors early. Otherwise, continue.
+    if (!validatedFields.success) {
+      return {
+        errors: validatedFields.error.flatten().fieldErrors,
+        message: 'Missing Fields. Failed to Create Invoice.',
+      };
+    }
+   
+    // Prepare data for insertion into the database
+    const { name, email, image_url } = validatedFields.data;
+   
+    // Insert data into the database
+    try {
+      await sql`
+        INSERT INTO customers (name, email, image_url)
+        VALUES (${name}, ${email}, ${image_url})
+      `;
+    } catch (error) {
+      // If a database error occurs, return a more specific error.
+      return {
+        message: 'Database Error: Failed to Create Invoice.',
+      };
+    }
+   
+    // Revalidate the cache for the invoices page and redirect the user.
+    revalidatePath('/dashboard/customers');
+    redirect('/dashboard/customers');
 }
 
 export async function updateInvoice(id: string, formData: FormData) {

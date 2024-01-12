@@ -10,6 +10,7 @@ import {
 } from './definitions';
 import { formatCurrency } from './utils';
 import { unstable_noStore as noStore } from 'next/cache';
+import { custom } from 'zod';
 
 export async function fetchRevenue() {
   // Add noStore() here to prevent the response from being cached.
@@ -56,6 +57,30 @@ export async function fetchLatestInvoices() {
   }
 }
 
+export async function fetchAllInvoices() {
+  noStore();
+
+  try {
+    const data = await sql<InvoiceForm>`
+      SELECT invoices.amount, invoices.id, invoices.status, invoices.customer_id
+      FROM invoices
+      JOIN customers ON invoices.customer_id = customers.id
+      ORDER BY invoices.date DESC
+    `;
+
+    const allInvoices = data.rows.map((invoice) => ({
+      ...invoice,
+      amount: formatCurrency(invoice.amount),
+      status: invoice.status,
+      customer_id: invoice.customer_id,
+    }));
+    return allInvoices;
+  } catch (error) {
+    console.error('Database Error:', error);
+    throw new Error('Failed to fetch the latest invoices.');
+  }
+}
+
 export async function fetchCardData() {
   noStore();
 
@@ -69,23 +94,27 @@ export async function fetchCardData() {
          SUM(CASE WHEN status = 'paid' THEN amount ELSE 0 END) AS "paid",
          SUM(CASE WHEN status = 'pending' THEN amount ELSE 0 END) AS "pending"
          FROM invoices`;
+    const maxInvoiceAmountPaidPromise = sql`SELECT MAX(amount) FROM invoices WHERE status = 'paid'`;
 
     const data = await Promise.all([
       invoiceCountPromise,
       customerCountPromise,
       invoiceStatusPromise,
+      maxInvoiceAmountPaidPromise,
     ]);
 
     const numberOfInvoices = Number(data[0].rows[0].count ?? '0');
     const numberOfCustomers = Number(data[1].rows[0].count ?? '0');
     const totalPaidInvoices = formatCurrency(data[2].rows[0].paid ?? '0');
     const totalPendingInvoices = formatCurrency(data[2].rows[0].pending ?? '0');
+    const maxInvoiceAmountPaid = formatCurrency(data[3].rows[0].max ?? '0');
 
     return {
       numberOfCustomers,
       numberOfInvoices,
       totalPaidInvoices,
       totalPendingInvoices,
+      maxInvoiceAmountPaid,
     };
   } catch (error) {
     console.error('Database Error:', error);
@@ -188,7 +217,9 @@ export async function fetchCustomers() {
     const data = await sql<CustomerField>`
       SELECT
         id,
-        name
+        name,
+        email,
+        image_url
       FROM customers
       ORDER BY name ASC
     `;
